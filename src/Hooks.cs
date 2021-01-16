@@ -40,7 +40,6 @@ namespace AutoLightshow
                 {
                     MelonCoroutines.Start(AutoLightshowMod.ISetDefaultArenaBrightness());
                 }
-
             }
         }
 
@@ -50,7 +49,7 @@ namespace AutoLightshow
             private static void Prefix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset(true);
+                AutoLightshowMod.Reset("Restart", true);
             }
         }
 
@@ -60,7 +59,7 @@ namespace AutoLightshow
             private static void Postfix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset();
+                AutoLightshowMod.Reset("ReturnToSongList");
             }
         }
 
@@ -70,7 +69,7 @@ namespace AutoLightshow
             private static void Postfix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset();
+                AutoLightshowMod.Reset("GoToFailedPage");
             }
         }
 
@@ -80,7 +79,7 @@ namespace AutoLightshow
             private static void Postfix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset();
+                AutoLightshowMod.Reset("GoToResultsPage");
             }
         }
 
@@ -89,7 +88,16 @@ namespace AutoLightshow
         {
             private static void Postfix(LaunchPanel __instance)
             {
-                AutoLightshowMod.Reset();
+                AutoLightshowMod.Reset("Back");
+            }
+        }
+        [HarmonyPatch(typeof(MenuState), "SetState", typeof(MenuState.State))]
+        private static class PatchSetState
+        {
+            private static void PostFix(MenuState __instance, MenuState.State state)
+            {
+                if (state == MenuState.State.SongPage)
+                    AutoLightshowMod.Reset("SetState");
             }
         }
     }

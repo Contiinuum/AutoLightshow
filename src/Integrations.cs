@@ -17,17 +17,16 @@ namespace AutoLightshow
                 if (mod.Assembly.GetName().Name == "ArenaLoader")
                 {
                     var scoreVersion = new Version(mod.Info.Version);
-                    var lastUnsupportedVersion = new Version("0.2.1");
+                    var lastUnsupportedVersion = new Version("0.2.3");
                     var result = scoreVersion.CompareTo(lastUnsupportedVersion);
                     if (result > 0)
                     {
                         arenaLoaderFound = true;
                         MelonLogger.Log("Arena Loader found");
-
                     }
                     else
                     {
-                        MelonLogger.Log("Arena Loader version not compatible. Update Arena Loader to use it with Authorable modifiers.");
+                        MelonLogger.LogWarning("Arena Loader version not compatible. Update Arena Loader to use it with Authorable Modifiers.");
                         arenaLoaderFound = false;
                     }
                 }               
