@@ -8,7 +8,7 @@ namespace AutoLightshow
         public const string Category = "AutoLightshow";
 
         public static bool enabled;
-        public static bool pulseMode;
+        public static bool alternativeLightshow;
         public static bool enableStroboChains;
         public static bool enablePsychedelia;
         public static float intensity;
@@ -20,7 +20,7 @@ namespace AutoLightshow
         public static void RegisterConfig()
         {
             MelonPrefs.RegisterBool(Category, nameof(enabled), true, "Enables AutoLightshow.");
-            MelonPrefs.RegisterBool(Category, nameof(pulseMode), false, "Pulses the lights, similar to how a sound visualizer works.");
+            MelonPrefs.RegisterBool(Category, nameof(alternativeLightshow), false, "Uses an alternative lightshow");
             MelonPrefs.RegisterBool(Category, nameof(enableStroboChains), true, "Strobes the Lights on chains.");
             MelonPrefs.RegisterBool(Category, nameof(enablePsychedelia), true, "Allows the Lightshow to use Psychedelia.");
             MelonPrefs.RegisterFloat(Category, nameof(intensity), 1f, "Controls how intense the lightshow is. [0.1, 1, 0.1, 1]{P}");

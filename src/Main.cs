@@ -40,18 +40,19 @@ namespace AutoLightshow
         private static float defaultArenaBrightness = .5f;
        
         private static float maxBrightness;
-        private const float fadeOutTime = 360f;
+        private const float fadeOutTime = 240f;
         private static float mapIntensity;
 
         private static int startIndex = 0;
         private static List<BrightnessEvent> brightnessEvents = new List<BrightnessEvent>();
+        private static List<PsyEvent> psyEvents = new List<PsyEvent>();
 
         public static class BuildInfo
         {
             public const string Name = "AutoLightshow";  // Name of the Mod.  (MUST BE SET)
             public const string Author = "Continuum"; // Author of the Mod.  (Set as null if none)
             public const string Company = null; // Company that made the Mod.  (Set as null if none)
-            public const string Version = "1.5.0"; // Version of the Mod.  (MUST BE SET)
+            public const string Version = "1.6.0"; // Version of the Mod.  (MUST BE SET)
             public const string DownloadLink = null; // Download Link for the Mod.  (Set as null if none)
         }
         
@@ -97,19 +98,90 @@ namespace AutoLightshow
             return intensity;
         }
 
-        private static async void PrepareLightshow()
+        private static async void PrepareLightshow(List<SongCues.Cue> cues)
         {
             float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
             brightnessEvents.Clear();
+            psyEvents.Clear();
             ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
-            List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
-            for (int i = cues.Count - 1; i >= 0; i--)
+            
+            if (!Config.alternativeLightshow)
             {
-                if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);
-                else if (!Config.enableStroboChains && cues[i].behavior == Target.TargetBehavior.Chain) cues.RemoveAt(i);               
+                await PrepareFade(maxBrightness * .5f);
+                await PrepareAsync(cues);
+                MelonCoroutines.Stop(faderToken);
             }
-            await PrepareAsync(cues);
+            else
+            {
+                await PreparePulse(cues);
+            }
+            brightnessEvents.Sort((cue1, cue2) => cue1.startTick.CompareTo(cue2.startTick));
             lightshowToken = MelonCoroutines.Start(BetterLightshow());
+        }
+
+        private static async Task PrepareFade(float targetExposure)
+        {
+            float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
+            float oldReflection = RenderSettings.reflectionIntensity;
+            ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
+            float startTick = AudioDriver.I.mCachedTick;
+            float _endTick = startTick + 960f;
+            float percentage = 0f;
+            while (percentage < 100f)
+            {
+                percentage = ((AudioDriver.I.mCachedTick - startTick) * 100f) / (_endTick - startTick);
+                float currentExp = Mathf.Lerp(oldExposure, targetExposure, percentage / 100f);
+                float currentRef = Mathf.Lerp(oldReflection, targetExposure, percentage / 100f);
+                RenderSettings.skybox.SetFloat("_Exposure", currentExp);
+                ArenaLoaderMod.CurrentSkyboxReflection = 0f;
+                ArenaLoaderMod.ChangeReflectionStrength(currentRef);
+                ArenaLoaderMod.CurrentSkyboxExposure = currentExp;
+            }
+            await Task.CompletedTask;
+        }
+
+        private static async Task PreparePulse(List<SongCues.Cue> cues)
+        {
+            foreach(SongCues.Cue cue in cues)
+            {
+                float amount = GetTargetAmount((Hitsound)cue.velocity, cue.behavior) * 2f;
+                //fadeToBlackStartTick = AudioDriver.I.mCachedTick;
+                //fadeToBlackEndTick = fadeToBlackStartTick + (fadeOutTime / mapIntensity);
+                float end = cue.tick + (fadeOutTime / mapIntensity);
+                //float curr = RenderSettings.skybox.GetFloat("_Exposure") + amount;
+                //float newAmount = curr > maxBrightness ? maxBrightness : curr;
+                //fadeToBlackExposure = newAmount;
+                //fadeToBlackReflection = newAmount;
+                brightnessEvents.Add(new BrightnessEvent(amount, cue.tick, end));
+                if(cue.tick != cue.nextCue.tick) PreparePsychedelia(cue);
+            }
+            await Task.CompletedTask;
+        }
+
+        private static void PreparePsychedelia(SongCues.Cue cue)
+        {
+            if (Config.enablePsychedelia)
+            {
+                if (cue.behavior == Target.TargetBehavior.Melee || cue.behavior == Target.TargetBehavior.ChainStart || cue.behavior == Target.TargetBehavior.Hold)
+                {
+                    List<float> ticks = new List<float>();
+                    if (cue.behavior == Target.TargetBehavior.ChainStart) LookForEndOfChain(cue, ticks);
+                    else LookForLastBehavior(cue, new Target.TargetBehavior[] { Target.TargetBehavior.Melee }, ticks);
+
+                    if (cue.behavior == Target.TargetBehavior.Hold && cue.tickLength >= 1920f)
+                    {
+                        //MelonCoroutines.Stop(psyToken);
+                        //psyToken = MelonCoroutines.Start(DoPsychedelia(AudioDriver.I.mCachedTick + cue.tickLength - 960f));
+                        psyEvents.Add(new PsyEvent(cue.tick, cue.tick + cue.tickLength - 960f));
+                    }
+                    else if (ticks[0] - cue.tick >= 1920f && cue.behavior == Target.TargetBehavior.Melee)
+                    {
+                        //MelonCoroutines.Stop(psyToken);
+                        //psyToken = MelonCoroutines.Start(DoPsychedelia(ticks[0] - 960f));
+                        psyEvents.Add(new PsyEvent(cue.tick, ticks[0] - 960f));
+                    }
+                }
+            }
         }
 
         private static async Task PrepareAsync(List<SongCues.Cue> cues)
@@ -134,6 +206,7 @@ namespace AutoLightshow
             sections.Sort((section1, section2) => section1.start.CompareTo(section2.start));
             foreach (Section section in sections)
             {
+                float sectionBrightnessSum = 0f;
                 List<SongCues.Cue> sectionCues = new List<SongCues.Cue>();
 
                 float sectionBrightness = 0f;
@@ -150,15 +223,42 @@ namespace AutoLightshow
                 if (sectionBrightness != 0f && sectionCues.Count > 0f)
                 {
                     sectionCues.Sort((cue1, cue2) => cue1.tick.CompareTo(cue2.tick));
-
                     foreach (SongCues.Cue cue in sectionCues)
                     {
                         if (cue.nextCue is null) break;
-                        brightnessEvents.Add(new BrightnessEvent(((GetTargetAmount((Hitsound)cue.velocity, cue.behavior) / sectionBrightness) * (sectionTargetBrightness - previousSectionBrightness)), cue.tick, cue.nextCue.tick, section.intensity));
+                        sectionBrightnessSum += ((GetTargetAmount((Hitsound)cue.velocity, cue.behavior) / sectionBrightness) * (sectionTargetBrightness - previousSectionBrightness));
+                        float brightness = previousSectionBrightness + sectionBrightnessSum;
+                        float end = cue.tick + 240f;
+                        if (end >= cue.nextCue.tick) end = cue.nextCue.tick;
+                        if (brightnessEvents.Count > 0)
+                        {
+                            if (brightnessEvents.Last().startTick != cue.tick)
+                            {
+                                brightnessEvents.Add(new BrightnessEvent(brightness, cue.tick, end));
+                                PreparePsychedelia(cue);
+                            }
+                            else
+                            {
+                                BrightnessEvent be = brightnessEvents.Last();
+                                be.brightness = brightness;
+                                if (cue.nextCue.tick > be.endTick)
+                                {
+                                    be.endTick = end;
+                                }
+                                brightnessEvents.RemoveAt(brightnessEvents.Count - 1);
+                                brightnessEvents.Add(be);
+                            }
+                        }
+                        else
+                        {
+                            brightnessEvents.Add(new BrightnessEvent(brightness, cue.tick, end));
+                            PreparePsychedelia(cue);
+                        }
+                        
                     }
                     expState = expState == ExposureState.Light ? ExposureState.Dark : ExposureState.Light;
-                }
-                previousSectionBrightness = sectionTargetBrightness;
+                    previousSectionBrightness = sectionTargetBrightness;
+                }               
             }
             brightnessEvents.Sort((event1, event2) => event1.startTick.CompareTo(event2.startTick));
             await Task.CompletedTask;
@@ -201,13 +301,18 @@ namespace AutoLightshow
             if (!Integrations.arenaLoaderFound || !Config.enabled) return;
             StopLightshow();
             maxBrightness = defaultArenaBrightness * Config.maxBrightness;
-            mapIntensity = CalculateIntensity(SongCues.I.mCues.cues.First().tick, SongCues.I.mCues.cues.Last().tick, SongCues.I.mCues.cues.ToList());
-            active = true;
-            if (!Config.pulseMode) faderToken = MelonCoroutines.Start(Fade(960f, maxBrightness * .5f));
-            Task.Run(() => PrepareLightshow());           
-            //lightshowToken = MelonCoroutines.Start(BetterLightshow());
 
-            if (Config.pulseMode)
+            List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
+            for (int i = cues.Count - 1; i >= 0; i--)
+            {
+                if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);               
+            }
+
+            mapIntensity = CalculateIntensity(cues.First().tick, cues.Last().tick, cues.ToList());
+            active = true;
+            Task.Run(() => PrepareLightshow(cues));           
+
+            if (Config.alternativeLightshow)
             {       
                 
                 fadeToBlackStartTick = AudioDriver.I.mCachedTick;
@@ -222,21 +327,30 @@ namespace AutoLightshow
         private static IEnumerator BetterLightshow()
         {
             
-            List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
+            //List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
             while (active)
             {
+                if (psyEvents.Count > 0)
+                {
+                    if (psyEvents[0].startTick <= AudioDriver.I.mCachedTick)
+                    {
+                        MelonCoroutines.Stop(psyToken);
+                        psyToken = MelonCoroutines.Start(DoPsychedelia(psyEvents[0].startTick, psyEvents[0].endTick));
+                        psyEvents.RemoveAt(0);
+                    }
+                }
                 if (brightnessEvents.Count == 0) yield break;
                 if(brightnessEvents[0].startTick <= AudioDriver.I.mCachedTick)
                 {
-                    if (!Config.pulseMode)
+                    if (!Config.alternativeLightshow)
                     {
                         MelonCoroutines.Stop(faderToken);
-                        faderToken = MelonCoroutines.Start(BetterFade(brightnessEvents[0].endTick, brightnessEvents[0].brightness));
+                        faderToken = MelonCoroutines.Start(BetterFade(brightnessEvents[0].startTick, brightnessEvents[0].endTick, brightnessEvents[0].brightness));
                     }
                     else
                     {
                         fadeToBlackStartTick = brightnessEvents[0].startTick;
-                        fadeToBlackEndTick = fadeToBlackStartTick + (fadeOutTime / mapIntensity);
+                        fadeToBlackEndTick = brightnessEvents[0].endTick;
                         float curr = RenderSettings.skybox.GetFloat("_Exposure") + brightnessEvents[0].brightness;
                         float newAmount = curr > maxBrightness ? maxBrightness : curr;
                         fadeToBlackExposure = newAmount;
@@ -244,55 +358,19 @@ namespace AutoLightshow
                     }
                     brightnessEvents.RemoveAt(0);
                 }
-
-                if (cues.Count == 0) yield break;
+                
+                /*if (cues.Count == 0) yield break;
                 SongCues.Cue cue = cues[0];
                 if (cue.nextCue is null) yield break;
                 if (cue.tick <= AudioDriver.I.mCachedTick)
                 {
                     HandlePsychedelia(cue);
-                    if(Config.pulseMode) HandlePulse(cue);
+                    //if(Config.pulseMode) HandlePulse(cue);
                     cues.RemoveAt(0);
-                }
+                }*/
                 
-                yield return new WaitForSecondsRealtime(.01f);
+                yield return new WaitForSecondsRealtime(.02f);
             }
-        }
-
-        private static void HandlePsychedelia(SongCues.Cue cue)
-        {
-            if (Config.enablePsychedelia)
-            {
-                if (cue.behavior == Target.TargetBehavior.Melee || cue.behavior == Target.TargetBehavior.ChainStart || cue.behavior == Target.TargetBehavior.Hold)
-                {
-
-                    List<float> ticks = new List<float>();
-                    if (cue.behavior == Target.TargetBehavior.ChainStart) LookForEndOfChain(cue, ticks);
-                    else LookForLastBehavior(cue, new Target.TargetBehavior[] { Target.TargetBehavior.Melee }, ticks);
-
-                    if (cue.behavior == Target.TargetBehavior.Hold && cue.tickLength >= 1920f)
-                    {
-                        MelonCoroutines.Stop(psyToken);
-                        psyToken = MelonCoroutines.Start(DoPsychedelia(AudioDriver.I.mCachedTick + cue.tickLength - 960f));
-                    }
-                    else if (ticks[0] - cue.tick >= 1920f && cue.behavior == Target.TargetBehavior.Melee)
-                    {
-                        MelonCoroutines.Stop(psyToken);
-                        psyToken = MelonCoroutines.Start(DoPsychedelia(ticks[0] - 960f));
-                    }
-                }
-            }
-        }
-
-        private static void HandlePulse(SongCues.Cue cue)
-        {
-            float amount = GetTargetAmount((Hitsound)cue.velocity, cue.behavior) * 2f;
-            fadeToBlackStartTick = AudioDriver.I.mCachedTick;
-            fadeToBlackEndTick = fadeToBlackStartTick + (fadeOutTime / mapIntensity);
-            float curr = RenderSettings.skybox.GetFloat("_Exposure") + amount;
-            float newAmount = curr > maxBrightness ? maxBrightness : curr;
-            fadeToBlackExposure = newAmount;
-            fadeToBlackReflection = newAmount;
         }
 
         public static IEnumerator ISetDefaultArenaBrightness()
@@ -310,222 +388,21 @@ namespace AutoLightshow
             if (!Integrations.arenaLoaderFound || !Config.enabled) return;
             userArenaBrightness = brightness;
             userArenaReflection = reflection;
-        }
-
-        /*private static IEnumerator DoLightshow()
-        {
-            float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
-            ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
-            List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
-            for (int i = cues.Count - 1; i >= 0; i--)
-            {              
-                if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);
-            }
-               
-            ExposureState state = ExposureState.Light;
-            while (active)
-            {
-                if (cues.Count == 0) yield break;
-                SongCues.Cue cue = cues[0];
-                if (cue.nextCue is null) yield break;
-                if (cue.tick <= AudioDriver.I.mCachedTick)
-                {
-                    if (cue.behavior != Target.TargetBehavior.Chain && cue.behavior != Target.TargetBehavior.ChainStart && cue.velocity == (int)Hitsound.ChainNode)
-                    {
-                        cues.RemoveAt(0);
-                        continue;
-                    }
-                    if (cue.nextCue.tick == cue.tick)
-                    {
-                        if (cue.behavior == Target.TargetBehavior.Melee) cues.RemoveAt(1);
-                        else
-                        {
-                            cues.RemoveAt(0);
-                            continue;
-                        }
-                           
-                    }
-                    if (!Config.enableStroboChains)
-                    {
-                        if (cue.behavior == Target.TargetBehavior.Chain)
-                        {
-                            cues.RemoveAt(0);
-                            continue;
-                        }      
-                    }
-                    if(cue.behavior != Target.TargetBehavior.Melee && cue.velocity == (int)Hitsound.Melee)
-                    {
-                        cues.RemoveAt(0);
-                        continue;
-                    }
-
-                    float diff = cue.nextCue.tick - cue.tick;
-                    float end = cue.nextCue.tick - (diff / 4f);
-                    bool isLight = state == ExposureState.Light;
-                    float target = isLight ? Config.minBrightness : defaultArenaBrightness * Config.maxBrightness;
-                    if (cue.behavior == Target.TargetBehavior.Chain) target = isLight ? (Config.maxBrightness / 100) * 35f : (Config.maxBrightness / 100) * 65f;
-                    float threshhold = SongDataHolder.I.songData.GetTempo(AudioDriver.I.mCachedTick) >= 150 ? 2f : 1f;
-                    if (cue.behavior == Target.TargetBehavior.Standard || cue.behavior == Target.TargetBehavior.Vertical || cue.behavior == Target.TargetBehavior.Horizontal)
-                    {
-                        if (cue.tick == cue.nextCue.tick)
-                        {
-                            if(cue.nextCue.behavior == cue.behavior)
-                            {
-                                if (cue.nextCue.velocity == (int)Hitsound.Percussion || cue.nextCue.velocity == (int)Hitsound.Snare)
-                                {
-                                    cues.RemoveAt(0);
-                                    continue;
-                                }
-                                else
-                                {
-                                    cues.RemoveAt(1);
-                                }
-                            }
-                            else
-                            {
-                                cues.RemoveAt(0);
-                                continue;
-                            }
-                           
-                        }
-                        else if (diff <= 240f)
-                        {
-                            if(cue.nextCue.behavior == cue.behavior)
-                            {
-                                if (cue.nextCue.velocity != (int)Hitsound.Percussion && cue.nextCue.velocity != (int)Hitsound.Snare)
-                                {
-                                    cues.RemoveAt(1);
-                                }
-                            }                            
-                        }
-
-                    }
-                    else if (cue.behavior == Target.TargetBehavior.Chain)
-                    {
-                        if(cue.velocity == (int)Hitsound.ChainNode)
-                        {
-                            
-                            if (diff >= 240) //(diff >= 240 * threshhold
-                            {
-                                cues.RemoveAt(0);
-                                continue;
-                            }
-                        }                       
-                    }
-
-                    if (Config.enablePsychedelia)
-                    {
-                        if (cue.behavior == Target.TargetBehavior.Melee || cue.behavior == Target.TargetBehavior.ChainStart || cue.behavior == Target.TargetBehavior.Hold)
-                        {
-
-                            //if (cue.behavior == Target.TargetBehavior.Melee) LookForLastBehavior(cue, Target.TargetBehavior.Melee, tick);
-                            //else LookForLastBehavior(cue, Target.TargetBehavior.ChainStart, tick);
-                            List<float> ticks = new List<float>();
-                            if (cue.behavior == Target.TargetBehavior.ChainStart) LookForEndOfChain(cue, ticks);
-                            //else LookForLastBehavior(cue, new Target.TargetBehavior[] { Target.TargetBehavior.Melee, Target.TargetBehavior.Hold }, ticks);
-                            else LookForLastBehavior(cue, new Target.TargetBehavior[] { Target.TargetBehavior.Melee }, ticks);
-
-                            if (cue.behavior == Target.TargetBehavior.Hold && cue.tickLength >= 1920f)
-                            {
-                                MelonCoroutines.Stop(psyToken);
-                                psyToken = MelonCoroutines.Start(DoPsychedelia(AudioDriver.I.mCachedTick + cue.tickLength - 960f));
-                            }
-                            else if (ticks[0] - cue.tick >= 1920f && cue.behavior == Target.TargetBehavior.Melee)//&& !(cue.behavior == Target.TargetBehavior.Hold && ticks[0] > AudioDriver.I.mCachedTick + cue.tickLength)
-                            {
-                                MelonCoroutines.Stop(psyToken);
-                                psyToken = MelonCoroutines.Start(DoPsychedelia(ticks[0] - 960f));
-                            }
-
-                        }
-                    }
-                    
-
-                    bool smallFade = false;
-                    MelonCoroutines.Stop(faderToken);
-                    if (!Config.pulseMode)
-                    {
-                        if (cue.behavior != Target.TargetBehavior.Melee)
-                        {
-                            if ((cue.velocity == (int)Hitsound.Kick || cue.velocity == (int)Hitsound.ChainStart || cue.velocity == (int)Hitsound.Snare) && (cue.behavior == Target.TargetBehavior.Standard || cue.behavior == Target.TargetBehavior.Vertical || cue.behavior == Target.TargetBehavior.Horizontal))
-                            {
-                                float amnt = GetTargetAmount((Hitsound)cue.velocity, cue.behavior);
-                                target = RenderSettings.skybox.GetFloat("_Exposure") + (isLight ? -amnt : amnt);
-
-                                if (target > maxBrightness)
-                                {
-                                    target = maxBrightness;
-                                }
-                                else if (target < 0f)
-                                {
-                                    target = 0f;
-                                }
-                                else
-                                {
-                                    smallFade = true;
-                                }
-                                faderToken = MelonCoroutines.Start(Fade(end, target));
-                            }
-                            else
-                            {
-                                if (cue.behavior == Target.TargetBehavior.Hold || cue.velocity == (int)Hitsound.Snare) end = cue.nextCue.tick;
-                                else if (cue.velocity == (int)Hitsound.Percussion) end = cue.tick + 120f;
-                                float curr = RenderSettings.skybox.GetFloat("_Exposure");
-                                if (curr >= maxBrightness * .5f * Config.intensity)
-                                {
-                                    target = 0f;
-                                    isLight = true;
-                                }
-                                else
-                                {
-                                    target = maxBrightness * Config.intensity;
-                                    isLight = false;
-                                }
-                                faderToken = MelonCoroutines.Start(Fade(end, target));
-                            }
-
-                        }
-                        else
-                        {
-                            if (RenderSettings.skybox.GetFloat("_Exposure") >= maxBrightness * .5f)
-                            {
-                                target = 0f;
-                                isLight = true;
-                            }
-                            else
-                            {
-                                target = maxBrightness;
-                                isLight = false;
-                            }
-                            faderToken = MelonCoroutines.Start(Fade(cue.tick + 60f, target));
-                            //InstantLightChange(target);
-                        }
-                        if (!smallFade) state = isLight ? ExposureState.Dark : ExposureState.Light;
-                    }
-                    else
-                    {
-                        HandlePulse(cue);
-                    }
-
-                    cues.RemoveAt(0);
-                }
-                yield return new WaitForSecondsRealtime(.01f);
-            }
-            yield return null;
-        }*/
+        }       
 
         private static float GetTargetAmount(Hitsound hitsound, Target.TargetBehavior behavior)
         {
-            float amount = 0f;
+            float amount = 0.1f;
             switch (hitsound)
             {
                 case Hitsound.ChainNode:
                     amount = (maxBrightness / 100f) * 5f;
                     break;
                 case Hitsound.ChainStart:
-                    amount = (maxBrightness / 100f) * 20f;
+                    amount = (maxBrightness / 100f) * 15f;
                     break;
                 case Hitsound.Kick:
-                    amount = (maxBrightness / 100f) * 30f;
+                    amount = (maxBrightness / 100f) * 25f;
                     break;
                 case Hitsound.Snare:
                     amount = (maxBrightness / 100f) * 40f;
@@ -582,49 +459,33 @@ namespace AutoLightshow
             ticks.Add(cue.nextCue.tick);
         }
 
-        private static IEnumerator Fade(float endTick, float targetExposure)
+        private static IEnumerator BetterFade(float startTick, float endTick, float targetExposure)
         {
+            
             float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
             float oldReflection = RenderSettings.reflectionIntensity;
             ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
-            float startTick = AudioDriver.I.mCachedTick;
-            while (true)
+            //float startTick = AudioDriver.I.mCachedTick;
+            //targetExposure += oldExposure;
+            float percentage = 0f;
+            while (percentage < 100f)
             {
-                float percentage = ((AudioDriver.I.mCachedTick - startTick) * 100f) / (endTick - startTick);
+                percentage = ((AudioDriver.I.mCachedTick - startTick) * 100f) / (endTick - startTick);
                 float currentExp = Mathf.Lerp(oldExposure, targetExposure, percentage / 100f);
                 float currentRef = Mathf.Lerp(oldReflection, targetExposure, percentage / 100f);
                 RenderSettings.skybox.SetFloat("_Exposure", currentExp);
                 ArenaLoaderMod.CurrentSkyboxReflection = 0f;
                 ArenaLoaderMod.ChangeReflectionStrength(currentRef);
                 ArenaLoaderMod.CurrentSkyboxExposure = currentExp;
-                yield return new WaitForSecondsRealtime(.01f);
+                yield return new WaitForSecondsRealtime(.02f);
             }
-        }
-
-        private static IEnumerator BetterFade(float endTick, float targetExposure)
-        {
-            float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
-            float oldReflection = RenderSettings.reflectionIntensity;
-            ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
-            float startTick = AudioDriver.I.mCachedTick;
-            targetExposure += oldExposure;
-            while (true)
-            {
-                float percentage = ((AudioDriver.I.mCachedTick - startTick) * 100f) / (endTick - startTick);
-                float currentExp = Mathf.Lerp(oldExposure, targetExposure, percentage / 100f);
-                float currentRef = Mathf.Lerp(oldReflection, targetExposure, percentage / 100f);
-                RenderSettings.skybox.SetFloat("_Exposure", currentExp);
-                ArenaLoaderMod.CurrentSkyboxReflection = 0f;
-                ArenaLoaderMod.ChangeReflectionStrength(currentRef);
-                ArenaLoaderMod.CurrentSkyboxExposure = currentExp;
-                yield return new WaitForSecondsRealtime(.01f);
-            }
+            
         }
 
         private static IEnumerator FadeToBlack()
         {
             ArenaLoaderMod.CurrentSkyboxExposure = fadeToBlackExposure;
-            while (true)
+            while (active)
             {
                 float percentage = ((AudioDriver.I.mCachedTick - fadeToBlackStartTick) * 100f) / (fadeToBlackEndTick - fadeToBlackStartTick);
                 if(percentage >= 0)
@@ -640,34 +501,13 @@ namespace AutoLightshow
             }
         }
 
-        /*private static IEnumerator Pulse(float endTick, float amount)
-        {
-            float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
-            float oldReflection = RenderSettings.reflectionIntensity;
-            float targetExposure = oldExposure + amount;
-            if (targetExposure > Config.maxBrightness) targetExposure = Config.maxBrightness;
-            ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
-            float startTick = AudioDriver.I.mCachedTick;
-            while (true)
-            {
-                float percentage = ((AudioDriver.I.mCachedTick - startTick) * 100f) / (endTick - startTick);
-                float currentExp = Mathf.Lerp(oldExposure, targetExposure, percentage / 100f);
-                float currentRef = Mathf.Lerp(oldReflection, targetExposure, percentage / 100f);
-                RenderSettings.skybox.SetFloat("_Exposure", currentExp);
-                ArenaLoaderMod.CurrentSkyboxReflection = 0f;
-                ArenaLoaderMod.ChangeReflectionStrength(currentRef);
-                ArenaLoaderMod.CurrentSkyboxExposure = currentExp;               
-                yield return new WaitForSecondsRealtime(.01f);
-            }
-        }*/
-
-        private static IEnumerator DoPsychedelia(float end)
+        private static IEnumerator DoPsychedelia(float start, float end)
         {
             psychadeliaTimer = lastPsyTimer;
             while (active)
             {
-                float tick = AudioDriver.I.mCachedTick;
-                float amount = SongDataHolder.I.songData.GetTempo(tick) / 50f;
+                //float tick = AudioDriver.I.mCachedTick;
+                float amount = SongDataHolder.I.songData.GetTempo(start) / 50f;
                 float phaseTime = defaultPsychadeliaPhaseSeconds / amount;
 
                 if (psychadeliaTimer <= phaseTime)
@@ -682,14 +522,14 @@ namespace AutoLightshow
                 {
                     psychadeliaTimer = 0;
                 }
-                if (tick > end)
+                if (AudioDriver.I.mCachedTick > end)
                 {
                     lastPsyTimer = psychadeliaTimer;
                     psychadeliaTimer = 0;
                     yield break;
                 }
                    
-                yield return new WaitForSecondsRealtime(0.01f);
+                yield return new WaitForSecondsRealtime(0.02f);
             }
         }
 
@@ -723,7 +563,6 @@ namespace AutoLightshow
             fadeToBlackStartTick = 0f;
             fadeToBlackExposure = 0f;
             fadeToBlackReflection = 0f;
-            //if (restart) StartLightshow();
         }
 
         private enum ExposureState
@@ -747,14 +586,23 @@ namespace AutoLightshow
             public float brightness;
             public float startTick;
             public float endTick;
-            public float intensity;
-
-            public BrightnessEvent(float _brightness, float _startTick, float _endTick, float _intensity)
+            public BrightnessEvent(float _brightness, float _startTick, float _endTick)
             {
                 brightness = _brightness;
                 startTick = _startTick;
                 endTick = _endTick;
-                intensity = _intensity;
+            }
+        }
+
+        public struct PsyEvent
+        {
+            public float startTick;
+            public float endTick;
+            
+            public PsyEvent(float _startTick, float _endTick)
+            {
+                startTick = _startTick;
+                endTick = _endTick;
             }
         }
 
