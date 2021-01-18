@@ -52,7 +52,7 @@ namespace AutoLightshow
             public const string Name = "AutoLightshow";  // Name of the Mod.  (MUST BE SET)
             public const string Author = "Continuum"; // Author of the Mod.  (Set as null if none)
             public const string Company = null; // Company that made the Mod.  (Set as null if none)
-            public const string Version = "1.6.1"; // Version of the Mod.  (MUST BE SET)
+            public const string Version = "1.6.2"; // Version of the Mod.  (MUST BE SET)
             public const string DownloadLink = null; // Download Link for the Mod.  (Set as null if none)
         }
         
@@ -358,8 +358,10 @@ namespace AutoLightshow
                         fadeToBlackEndTick = brightnessEvents[0].endTick;
                         float curr = RenderSettings.skybox.GetFloat("_Exposure") + brightnessEvents[0].brightness;
                         float newAmount = curr > maxBrightness ? maxBrightness : curr;
+                        float newReflection = newAmount / maxBrightness;
+                        newReflection = .5f + (newAmount * newReflection);
                         fadeToBlackExposure = newAmount;
-                        fadeToBlackReflection = newAmount;
+                        fadeToBlackReflection = newReflection;
                     }
                     brightnessEvents.RemoveAt(0);
                 }
@@ -469,6 +471,8 @@ namespace AutoLightshow
             
             float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
             float oldReflection = RenderSettings.reflectionIntensity;
+            float targetReflection = targetExposure / maxBrightness;
+            targetReflection = .5f + (targetExposure * targetReflection);
             ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
             //float startTick = AudioDriver.I.mCachedTick;
             //targetExposure += oldExposure;
@@ -477,7 +481,7 @@ namespace AutoLightshow
             {
                 percentage = ((AudioDriver.I.mCachedTick - startTick) * 100f) / (endTick - startTick);
                 float currentExp = Mathf.Lerp(oldExposure, targetExposure, percentage / 100f);
-                float currentRef = Mathf.Lerp(oldReflection, targetExposure, percentage / 100f);
+                float currentRef = Mathf.Lerp(oldReflection, targetReflection, percentage / 100f);
                 RenderSettings.skybox.SetFloat("_Exposure", currentExp);
                 ArenaLoaderMod.CurrentSkyboxReflection = 0f;
                 ArenaLoaderMod.ChangeReflectionStrength(currentRef);
@@ -496,7 +500,7 @@ namespace AutoLightshow
                 if(percentage >= 0)
                 {
                     float currentExp = Mathf.Lerp(fadeToBlackExposure, 0f, percentage / 100f);
-                    float currentRef = Mathf.Lerp(fadeToBlackReflection, 0f, percentage / 100f);
+                    float currentRef = Mathf.Lerp(fadeToBlackReflection, .5f, percentage / 100f);
                     RenderSettings.skybox.SetFloat("_Exposure", currentExp);
                     ArenaLoaderMod.CurrentSkyboxReflection = 0f;
                     ArenaLoaderMod.ChangeReflectionStrength(currentRef);
