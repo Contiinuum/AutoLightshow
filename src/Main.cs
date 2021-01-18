@@ -52,7 +52,7 @@ namespace AutoLightshow
             public const string Name = "AutoLightshow";  // Name of the Mod.  (MUST BE SET)
             public const string Author = "Continuum"; // Author of the Mod.  (Set as null if none)
             public const string Company = null; // Company that made the Mod.  (Set as null if none)
-            public const string Version = "1.6.0"; // Version of the Mod.  (MUST BE SET)
+            public const string Version = "1.6.1"; // Version of the Mod.  (MUST BE SET)
             public const string DownloadLink = null; // Download Link for the Mod.  (Set as null if none)
         }
         
@@ -117,6 +117,7 @@ namespace AutoLightshow
             }
             brightnessEvents.Sort((cue1, cue2) => cue1.startTick.CompareTo(cue2.startTick));
             lightshowToken = MelonCoroutines.Start(BetterLightshow());
+            string h = ScoreKeeper.I.GetHealth().ToString();
         }
 
         private static async Task PrepareFade(float targetExposure)
@@ -153,7 +154,11 @@ namespace AutoLightshow
                 //fadeToBlackExposure = newAmount;
                 //fadeToBlackReflection = newAmount;
                 brightnessEvents.Add(new BrightnessEvent(amount, cue.tick, end));
-                if(cue.tick != cue.nextCue.tick) PreparePsychedelia(cue);
+                if(cue.nextCue != null)
+                {
+                    if (cue.tick != cue.nextCue.tick) PreparePsychedelia(cue);
+                }
+                
             }
             await Task.CompletedTask;
         }

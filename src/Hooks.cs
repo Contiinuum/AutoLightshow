@@ -36,10 +36,9 @@ namespace AutoLightshow
             private static void Postfix(EnvironmentLoader __instance)
             {
                 if (!Config.enabled) return;
-                if (MenuState.sState == MenuState.State.SettingsPage)
-                {
-                    MelonCoroutines.Start(AutoLightshowMod.ISetDefaultArenaBrightness());
-                }
+                
+                MelonCoroutines.Start(AutoLightshowMod.ISetDefaultArenaBrightness());
+                
             }
         }
 
