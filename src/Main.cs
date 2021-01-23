@@ -252,6 +252,11 @@ namespace AutoLightshow
                                 }
                                 brightnessEvents.RemoveAt(brightnessEvents.Count - 1);
                                 brightnessEvents.Add(be);
+                                if(psyEvents.Count > 0)
+                                {
+                                    if (psyEvents.Last().startTick != cue.tick) PreparePsychedelia(cue);
+                                }
+                                
                             }
                         }
                         else
