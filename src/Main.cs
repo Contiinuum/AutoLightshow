@@ -52,7 +52,7 @@ namespace AutoLightshow
             public const string Name = "AutoLightshow";  // Name of the Mod.  (MUST BE SET)
             public const string Author = "Continuum"; // Author of the Mod.  (Set as null if none)
             public const string Company = null; // Company that made the Mod.  (Set as null if none)
-            public const string Version = "1.6.2"; // Version of the Mod.  (MUST BE SET)
+            public const string Version = "1.6.3"; // Version of the Mod.  (MUST BE SET)
             public const string DownloadLink = null; // Download Link for the Mod.  (Set as null if none)
         }
         
@@ -117,7 +117,6 @@ namespace AutoLightshow
             }
             brightnessEvents.Sort((cue1, cue2) => cue1.startTick.CompareTo(cue2.startTick));
             lightshowToken = MelonCoroutines.Start(BetterLightshow());
-            string h = ScoreKeeper.I.GetHealth().ToString();
         }
 
         private static async Task PrepareFade(float targetExposure)
@@ -137,6 +136,7 @@ namespace AutoLightshow
                 ArenaLoaderMod.CurrentSkyboxReflection = 0f;
                 ArenaLoaderMod.ChangeReflectionStrength(currentRef);
                 ArenaLoaderMod.CurrentSkyboxExposure = currentExp;
+                await Task.Delay(20);
             }
             await Task.CompletedTask;
         }
@@ -317,7 +317,6 @@ namespace AutoLightshow
             {
                 if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);               
             }
-
             mapIntensity = CalculateIntensity(cues.First().tick, cues.Last().tick, cues.ToList());
             active = true;
             Task.Run(() => PrepareLightshow(cues));           
@@ -592,7 +591,7 @@ namespace AutoLightshow
             Melee = 3,
             Kick = 20,
             Percussion = 60,
-            Snare = 120
+            Snare = 127
         }
 
         public struct BrightnessEvent

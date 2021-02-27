@@ -26,6 +26,7 @@ namespace AutoLightshow
             {
                 if (KataConfig.I.practiceMode) return;
                 if (!Config.enabled) return;
+                if (TutorialFlow.I.mIsTutorialSong) return;
                 AutoLightshowMod.StartLightshow();
             }
         }
