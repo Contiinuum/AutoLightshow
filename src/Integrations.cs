@@ -22,11 +22,11 @@ namespace AutoLightshow
                     if (result > 0)
                     {
                         arenaLoaderFound = true;
-                        MelonLogger.Log("Arena Loader found");
+                        MelonLogger.Msg("Arena Loader found");
                     }
                     else
                     {
-                        MelonLogger.LogWarning("Arena Loader version not compatible. Update Arena Loader to use it with Authorable Modifiers.");
+                        MelonLogger.Warning("Arena Loader version not compatible. Update Arena Loader to use it with Authorable Modifiers.");
                         arenaLoaderFound = false;
                     }
                 }               

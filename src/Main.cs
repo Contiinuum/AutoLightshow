@@ -14,7 +14,7 @@ namespace AutoLightshow
 {
     public class AutoLightshowMod : MelonMod
     {
-        public static bool isEnabled => Config.enabled;
+        public static bool IsEnabled => Config.enabled;
 
         private const float intensityNormExp = .5f;
         private const float intensityWeight = 1.5f;
@@ -30,7 +30,7 @@ namespace AutoLightshow
         private static object psyToken;
         private static bool active = false;
 
-        private static float defaultPsychadeliaPhaseSeconds = 14.28f;
+        private static readonly float defaultPsychadeliaPhaseSeconds = 14.28f;
         private static float psychadeliaTimer = 0.0f;
         private static float lastPsyTimer = 0f;
 
@@ -40,32 +40,31 @@ namespace AutoLightshow
         private static float defaultArenaBrightness = .5f;
        
         private static float maxBrightness;
-        private const float fadeOutTime = 240f;
+        private const float fadeOutTime = 360f;
         private static float mapIntensity;
 
         private static int startIndex = 0;
-        private static List<BrightnessEvent> brightnessEvents = new List<BrightnessEvent>();
-        private static List<PsyEvent> psyEvents = new List<PsyEvent>();
+        private static readonly List<BrightnessEvent> brightnessEvents = new List<BrightnessEvent>();
+        private static readonly List<PsyEvent> psyEvents = new List<PsyEvent>();
 
         public static class BuildInfo
         {
             public const string Name = "AutoLightshow";  // Name of the Mod.  (MUST BE SET)
             public const string Author = "Continuum"; // Author of the Mod.  (Set as null if none)
             public const string Company = null; // Company that made the Mod.  (Set as null if none)
-            public const string Version = "1.6.3"; // Version of the Mod.  (MUST BE SET)
+            public const string Version = "1.6.4"; // Version of the Mod.  (MUST BE SET)
             public const string DownloadLink = null; // Download Link for the Mod.  (Set as null if none)
         }
         
         public override void OnApplicationStart()
         {
-            HarmonyInstance instance = HarmonyInstance.Create("AutoLightshow");
             Integrations.LookForIntegrations();
             Config.RegisterConfig();
         }
 
-        public override void OnModSettingsApplied()
+        public override void OnPreferencesSaved()
         {
-            Config.OnModSettingsApplied();
+            Config.OnPreferencesSaved();
         }
 
         public static void EnableMod(bool enable)
@@ -98,13 +97,31 @@ namespace AutoLightshow
             return intensity;
         }
 
-        private static async void PrepareLightshow(List<SongCues.Cue> cues)
+       /*public override void OnUpdate()
+        {
+            if (Input.GetKeyDown(KeyCode.P))
+            {
+                InGameUI.I.GoToPausePage(true);
+            }
+        }*/
+
+        private static async void PrepareLightshow()
         {
             float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
             brightnessEvents.Clear();
             psyEvents.Clear();
             ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
-            
+
+            while(SongCues.I.mCues.cues.Count == 0)
+            {
+                await Task.Delay(100);
+            }
+            List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
+            for (int i = cues.Count - 1; i >= 0; i--)
+            {
+                if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);
+            }
+            mapIntensity = CalculateIntensity(cues.First().tick, cues.Last().tick, cues.ToList());
             if (!Config.alternativeLightshow)
             {
                 await PrepareFade(maxBrightness * .5f);
@@ -123,9 +140,12 @@ namespace AutoLightshow
         {
             float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
             float oldReflection = RenderSettings.reflectionIntensity;
+           
+           
+            while (!AudioDriver.I.IsPlaying()) await Task.Delay(20);
             ArenaLoaderMod.CurrentSkyboxExposure = oldExposure;
             float startTick = AudioDriver.I.mCachedTick;
-            float _endTick = startTick + 960f;
+            float _endTick = startTick + 480f;
             float percentage = 0f;
             while (percentage < 100f)
             {
@@ -145,7 +165,7 @@ namespace AutoLightshow
         {
             foreach(SongCues.Cue cue in cues)
             {
-                float amount = GetTargetAmount((Hitsound)cue.velocity, cue.behavior) * 2f;
+                float amount = GetTargetAmount((Hitsound)cue.velocity, cue.behavior) * 3f;
                 //fadeToBlackStartTick = AudioDriver.I.mCachedTick;
                 //fadeToBlackEndTick = fadeToBlackStartTick + (fadeOutTime / mapIntensity);
                 float end = cue.tick + (fadeOutTime / mapIntensity);
@@ -277,7 +297,7 @@ namespace AutoLightshow
         private static void CalculateSections(List<SongCues.Cue> cues, List<Section> sections, float start, float end, float threshhold, float startIndex = 0)
         {
             float intensity = CalculateIntensity(start, end, cues);          
-            intensity = intensity / Mathf.Pow(mapIntensity, intensityNormExp);
+            intensity /= Mathf.Pow(mapIntensity, intensityNormExp);
             intensity = (float)Math.Tanh(intensityWeight * intensity);
             float span = end - start;
             if (span > 480f)
@@ -312,14 +332,9 @@ namespace AutoLightshow
             StopLightshow();
             maxBrightness = defaultArenaBrightness * Config.maxBrightness;
 
-            List<SongCues.Cue> cues = SongCues.I.mCues.cues.ToList();
-            for (int i = cues.Count - 1; i >= 0; i--)
-            {
-                if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);               
-            }
-            mapIntensity = CalculateIntensity(cues.First().tick, cues.Last().tick, cues.ToList());
+           
             active = true;
-            Task.Run(() => PrepareLightshow(cues));           
+            Task.Run(() => PrepareLightshow());           
 
             if (Config.alternativeLightshow)
             {       
@@ -427,7 +442,28 @@ namespace AutoLightshow
                 default:
                     break;
             }
-            if (behavior == Target.TargetBehavior.Melee && hitsound != Hitsound.Melee) amount = (maxBrightness / 100f) * 80f;
+            if(behavior == Target.TargetBehavior.Melee)
+            {
+                if(hitsound != Hitsound.Melee)
+                {
+                    if(hitsound == Hitsound.Snare)
+                    {
+                        amount = (maxBrightness / 100f) * 60f;
+                    }
+                    else
+                    {
+                        amount = (maxBrightness / 100f) * 5f;
+                    }
+                }
+            }
+            else
+            {
+                if(hitsound == Hitsound.Melee)
+                {
+                    amount = 0f;
+                }
+            }
+            //if (behavior == Target.TargetBehavior.Melee && hitsound == Hitsound.Snare) amount = (maxBrightness / 100f) * 80f;
             return amount * Config.intensity * .5f;
         }
 
@@ -472,7 +508,6 @@ namespace AutoLightshow
 
         private static IEnumerator BetterFade(float startTick, float endTick, float targetExposure)
         {
-            
             float oldExposure = RenderSettings.skybox.GetFloat("_Exposure");
             float oldReflection = RenderSettings.reflectionIntensity;
             float targetReflection = targetExposure / maxBrightness;
@@ -490,7 +525,7 @@ namespace AutoLightshow
                 ArenaLoaderMod.CurrentSkyboxReflection = 0f;
                 ArenaLoaderMod.ChangeReflectionStrength(currentRef);
                 ArenaLoaderMod.CurrentSkyboxExposure = currentExp;
-                yield return new WaitForSecondsRealtime(.02f);
+                yield return new WaitForSecondsRealtime(.01f);
             }
             
         }
@@ -563,10 +598,12 @@ namespace AutoLightshow
             MelonCoroutines.Stop(lightshowToken);
             MelonCoroutines.Stop(fadeToBlackToken);
             MelonCoroutines.Stop(psyToken);
+            brightnessEvents.Clear();
+            psyEvents.Clear();
             ResetArenaValues();
         }
 
-        public static void Reset(string caller, bool restart = false)
+        public static void Reset()//string caller, bool restart = false
         {
             if (!Integrations.arenaLoaderFound || !Config.enabled) return;
             StopLightshow();

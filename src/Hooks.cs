@@ -1,4 +1,4 @@
-using Harmony;
+using HarmonyLib;
 using System.Reflection;
 using UnityEngine;
 using MelonLoader;
@@ -8,6 +8,7 @@ namespace AutoLightshow
 {
     internal static class Hooks
     {
+#pragma warning disable IDE0060, IDE0051
 
         [HarmonyPatch(typeof(OptionsMenu), "ShowPage", new Type[] { typeof(OptionsMenu.Page)})]
         private static class PatchShowPage
@@ -49,7 +50,7 @@ namespace AutoLightshow
             private static void Prefix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset("Restart", true);
+                AutoLightshowMod.Reset(); //true
             }
         }
 
@@ -59,7 +60,7 @@ namespace AutoLightshow
             private static void Postfix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset("ReturnToSongList");
+                AutoLightshowMod.Reset();
             }
         }
 
@@ -69,7 +70,7 @@ namespace AutoLightshow
             private static void Postfix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset("GoToFailedPage");
+                AutoLightshowMod.Reset();
             }
         }
 
@@ -79,7 +80,7 @@ namespace AutoLightshow
             private static void Postfix(InGameUI __instance)
             {
                 if (KataConfig.I.practiceMode) return;
-                AutoLightshowMod.Reset("GoToResultsPage");
+                AutoLightshowMod.Reset();
             }
         }
 
@@ -88,7 +89,7 @@ namespace AutoLightshow
         {
             private static void Postfix(LaunchPanel __instance)
             {
-                AutoLightshowMod.Reset("Back");
+                AutoLightshowMod.Reset();
             }
         }
         [HarmonyPatch(typeof(MenuState), "SetState", typeof(MenuState.State))]
@@ -97,7 +98,7 @@ namespace AutoLightshow
             private static void PostFix(MenuState __instance, MenuState.State state)
             {
                 if (state == MenuState.State.SongPage)
-                    AutoLightshowMod.Reset("SetState");
+                    AutoLightshowMod.Reset();
             }
         }
     }
