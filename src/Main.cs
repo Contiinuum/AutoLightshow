@@ -120,6 +120,8 @@ namespace AutoLightshow
             for (int i = cues.Count - 1; i >= 0; i--)
             {
                 if (cues[i].behavior == Target.TargetBehavior.Dodge) cues.RemoveAt(i);
+                else if (cues[i].behavior == Target.TargetBehavior.Chain && cues[i].velocity == (int)Hitsound.Melee) cues.RemoveAt(i);
+                else if (cues[i].velocity == (int)Hitsound.Silent) cues.RemoveAt(i);
             }
             mapIntensity = CalculateIntensity(cues.First().tick, cues.Last().tick, cues.ToList());
             if (!Config.alternativeLightshow)
@@ -439,6 +441,9 @@ namespace AutoLightshow
                 case Hitsound.Melee:
                     amount = (maxBrightness / 100f) * 80f;
                     break;
+                case Hitsound.Silent:
+                    amount = 0f;
+                    break;
                 default:
                     break;
             }
@@ -628,7 +633,8 @@ namespace AutoLightshow
             Melee = 3,
             Kick = 20,
             Percussion = 60,
-            Snare = 127
+            Snare = 127,
+            Silent = 999
         }
 
         public struct BrightnessEvent
